@@ -1,4 +1,5 @@
 
+
 // ============================================================================= 
 // PROJECT CHRONO - http://projectchrono.org 
 // 
@@ -79,7 +80,7 @@ constexpr float F_CGS_TO_SI = 1e-5;
 const double F_SI_TO_CGS = 1e5;
 const double Torque_SI_TO_CGS = 1e7;
 const int M = 2161;
-const int N = 2;
+const int N = 7;
 void readdata(std::string address, double array[M][N]);
 double interpolate(double* xData, double* yData, double x, bool extrapolate)
 {
@@ -115,18 +116,34 @@ int main(int argc, char* argv[]) {
     std::ofstream lid_position("lid_pos.csv");
     std::ofstream lid_velocity("lid_vel.csv");
     std::ofstream lid_pos_short("lid_pos_short.csv");
+    std::ofstream out_body_pos("out_body_positions.csv");
+    std::ofstream out_body_vel("out_body_velocities.csv");
+    std::ofstream body_pos_short("body_pos_short.csv");
+
+
     sim_param_holder params;
 
     // read the body and foot states data from a txt file 
-    std::string data_address = "sim0.txt"; //the address of the file that you want to read
+    std::string data_address = "sim_stance.txt"; //the address of the file that you want to read
     double data_array[M][N];
     readdata(data_address, data_array);
     // create arrays to store ux uy u_theta
-    double time_array[M], u_array[M];
-
+    double time_array[M], qf[M], qb[M], qfdot[M], qbdot[M], qfddot[M], qbddot[M]; 
+    double qb_e, qbdot_e, qbddot_fb, qbddot_d, qfddot_fb, qf_e, qfdot_e, qfddot_d;
+    double body_ini_pos, plate_ini_pos; 
+    double Kp_1 = 15;
+    double Kd_1 = 75;
+    double Kp_2 = 100;
+    double Kd_2 = 500;
     for (int i = 0; i < M; i++) {
         time_array[i] = data_array[i][0];
-        u_array[i] = data_array[i][1];
+	std::cout<< "t =  " << time_array[i] << std::endl;
+        qb[i] = data_array[i][1];
+        qbdot[i] = data_array[i][2];
+        qbddot[i] = data_array[i][5];
+        qf[i] = data_array[i][3]; 
+        qfdot[i] = data_array[i][4];
+        qfddot[i] = data_array[i][6];
     }
 
     if (argc != 2 || ParseJSON(argv[1], params) == false) {
@@ -258,7 +275,7 @@ int main(int argc, char* argv[]) {
     float plate_mass = (float)length * width * thickness * plate_density;
     float lid_density = 0.01;
     float lid_mass = (float)lid_length * lid_width * lid_thickness * lid_density;
-    float body_density = 40.0;
+    float body_density = 10.0;
     float body_mass = (float)body_length * body_width * body_thickness * body_density;
 
 
@@ -386,7 +403,13 @@ int main(int argc, char* argv[]) {
                 max_z = gran_sys.get_max_z();
                 rigid_plate->SetBodyFixed(false);
                 rigid_plate->SetPos_dt(ChVector<>(0, 0, -20));
-                rigid_plate->SetPos(ChVector<>(0, 0, max_z+5.1));
+                body_ini_pos = max_z + 4.4 + 25.0;
+                plate_ini_pos = max_z + 4.4;
+                rigid_plate->SetPos(ChVector<>(0, 0, plate_ini_pos));
+
+                rigid_body->SetBodyFixed(false);
+                rigid_body->SetPos_dt(ChVector<>(0, 0, -20));
+                rigid_body->SetPos(ChVector<>(0, 0, body_ini_pos));
                 plate_impact_state = true;
             }
 
@@ -399,6 +422,8 @@ int main(int argc, char* argv[]) {
             auto plate_ang_vel = rigid_plate->GetWvel_loc();
             plate_ang_vel = rigid_plate->GetRot().GetInverse().Rotate(plate_ang_vel);
 
+
+            auto body_pos = rigid_body->GetPos();
             auto lid_pos = rigid_lid->GetPos();
             auto lid_rot = rigid_lid->GetRot();
 
@@ -451,13 +476,21 @@ int main(int argc, char* argv[]) {
                 uy = 0.0;
                 utheta = 0.0;
             }
+            // the feedforward + feedback controller
             else if (t > prepare_time && t < prepare_time + time_array[M-1])
             {
-                /* ux = interpolate(time_array,ux_array,t-prepare_time,true)*F_SI_TO_CGS;
-                 uy = interpolate(time_array, uy_array, t-prepare_time, true)*F_SI_TO_CGS;
-                 utheta = interpolate(time_array, utheta_array, t-prepare_time, true)*Torque_SI_TO_CGS;*/
+                qb_e = interpolate(time_array, qb, t - prepare_time, true) - (rigid_body->GetPos()[2]- body_ini_pos )/100.0;
+                qf_e = interpolate(time_array, qf, t - prepare_time, true) - (rigid_plate->GetPos()[2] - plate_ini_pos)/100.0;
+                qbdot_e = interpolate(time_array, qbdot, t - prepare_time, true) - rigid_body->GetPos_dt()[2]/100.0;
+                qfdot_e = interpolate(time_array, qfdot, t - prepare_time, true) - rigid_plate->GetPos_dt()[2]/100.0;
+                qbddot_fb = Kp_1 * qb_e + Kd_1 * qbdot_e;
+                qfddot_fb = Kp_2 * qf_e + Kd_2 * qfdot_e;
+                qbddot_d = interpolate(time_array, qbddot, t - prepare_time, true);
+                qfddot_d = interpolate(time_array, qfddot, t - prepare_time, true);
+                
                 ux = 0.0;
-                uy = interpolate(time_array, u_array, t - prepare_time, true) * F_SI_TO_CGS;
+                uy = 0.5 * (body_mass / 1000.0 * (9.81 + qbddot_fb + qbddot_d) * F_SI_TO_CGS) + 0.5 * (plate_force[2] - plate_mass /1000.0 * (qfddot_fb + qfddot_d + 9.81) * F_SI_TO_CGS);
+//                std::cout<< "uy ="<< uy<<std::endl;
                 utheta = 0.0;
                 //std::cout << "\n\n\n" << "ux  uy  utheta\n" << ux << '\n' << uy << '\n' << utheta << "\n\n\n" << std::endl;
             }
@@ -472,6 +505,12 @@ int main(int argc, char* argv[]) {
             rigid_lid->Empty_forces_accumulators();
             rigid_lid->Accumulate_force(ChVector<>(plate_force[6], plate_force[7], plate_force[8]), lid_pos, false);
             rigid_lid->Accumulate_torque(ChVector<>(plate_force[9], plate_force[10], plate_force[11]), false);
+
+            rigid_body->Empty_forces_accumulators();
+            rigid_body->Accumulate_force(ChVector<>(0, 0, uy), body_pos,false);
+            rigid_body->Accumulate_torque(ChVector<>(0, 0, 0), false);
+
+
             //   rigid_plate->Accumulate_force(ChVector<>(plate_force[0], plate_force[1], plate_force[2]), plate_pos, false);
              //  rigid_plate->Accumulate_torque(ChVector<>(plate_force[3], plate_force[4], plate_force[5]), false);
                /*       std::cout <<rigid_plate->GetPos()[2]<<','<< rigid_plate->Get_accumulated_force()[0] * F_CGS_TO_SI << ','
@@ -491,7 +530,7 @@ int main(int argc, char* argv[]) {
                     << plate_force[1] * F_CGS_TO_SI << ','
                     << plate_force[2] * F_CGS_TO_SI << ',' << gran_sys.get_max_z() << ',' << gran_sys.getNumSpheres() << std::endl;
             }
-            if (counter % 10 == 0 && t > prepare_time && t < prepare_time + time_array[M - 1]){
+            if (counter % 4 == 0 && t > prepare_time && t < prepare_time + time_array[M - 1]){
                 out_as << t << "," << plate_force[0] * F_CGS_TO_SI << "," << plate_force[1] * F_CGS_TO_SI << ","
                     << plate_force[2] * F_CGS_TO_SI << "," << plate_force[3] << "," << plate_force[4] << "," << plate_force[5]
                     << '\n';
@@ -500,6 +539,9 @@ int main(int argc, char* argv[]) {
                 out_vel << t << "," << rigid_plate->GetPos_dt()[0] << "," << rigid_plate->GetPos_dt()[1] << ","
                     << rigid_plate->GetPos_dt()[2] << "," << plate_ang_vel.x() << "," << plate_ang_vel.y() << "," << plate_ang_vel.z() << "\n";
                 lid_position << t << "," << lid_pos.x() << "," << lid_pos.y() << "," << lid_pos.z() << "," << lid_rot[0] << "," << lid_rot[1] << "," << lid_rot[2] << "," << lid_rot[3] << "\n";
+                
+                out_body_pos << t << "," << rigid_body->GetPos()[0] << "," << rigid_body->GetPos()[1] << "," << rigid_body->GetPos()[2] << "\n";
+                out_body_vel << t << "," << rigid_body->GetPos_dt()[0] << "," << rigid_body->GetPos_dt()[1] << "," << rigid_body->GetPos_dt()[2] << "\n";
                 //lid_velocity<< t << ","<<lid_vel[0]<<","<<lid_vel
             }
             if (counter % 400 == 0 &&t > prepare_time && t < prepare_time + time_array[M - 1]) {
@@ -517,7 +559,7 @@ int main(int argc, char* argv[]) {
                 meshfile << outstream.str();
                 lid_pos_short << t << "," << lid_pos.x() << "," << lid_pos.y() << "," << lid_pos.z() << "," << lid_rot[0] << "," << lid_rot[1] << "," << lid_rot[2] << "," << lid_rot[3] << "\n";
                 plate_pos_short << t << "," << plate_pos.x() << "," << plate_pos.y() << "," << plate_pos.z() << "," << plate_rot[0] << "," << plate_rot[1] << "," << plate_rot[2] << "," << plate_rot[3] << "\n";
-
+                body_pos_short << t << "," << rigid_body->GetPos()[0] << "," << rigid_body->GetPos()[1] << "," << rigid_body->GetPos()[2] << "\n";
             }
             counter++;
         }
@@ -537,6 +579,10 @@ int main(int argc, char* argv[]) {
     lid_position.close();
     lid_velocity.close();
     lid_pos_short.close();
+    out_body_pos.close();
+    out_body_vel.close();
+    out_body_pos.close();
+    body_pos_short.close();
     return 0;
 }
 
