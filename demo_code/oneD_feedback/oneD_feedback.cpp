@@ -1,5 +1,6 @@
 
 
+
 // ============================================================================= 
 // PROJECT CHRONO - http://projectchrono.org 
 // 
@@ -80,8 +81,10 @@ constexpr float F_CGS_TO_SI = 1e-5;
 const double F_SI_TO_CGS = 1e5;
 const double Torque_SI_TO_CGS = 1e7;
 const int M = 2161;
-const int N = 7;
+const int N = 8;
+const double stance_time = 0.3;
 void readdata(std::string address, double array[M][N]);
+
 double interpolate(double* xData, double* yData, double x, bool extrapolate)
 {
     int size = 2161;
@@ -119,8 +122,8 @@ int main(int argc, char* argv[]) {
     std::ofstream out_body_pos("out_body_positions.csv");
     std::ofstream out_body_vel("out_body_velocities.csv");
     std::ofstream body_pos_short("body_pos_short.csv");
-
-
+    std::ofstream u_fb_error("u_fb_error.csv");
+    std::ofstream CoM_state("CoM_state.csv");
     sim_param_holder params;
 
     // read the body and foot states data from a txt file 
@@ -128,13 +131,20 @@ int main(int argc, char* argv[]) {
     double data_array[M][N];
     readdata(data_address, data_array);
     // create arrays to store ux uy u_theta
-    double time_array[M], qf[M], qb[M], qfdot[M], qbdot[M], qfddot[M], qbddot[M]; 
+    double time_array[M], qf[M], qb[M], qfdot[M], qbdot[M], qfddot[M], qbddot[M], u_ff_list[M];
     double qb_e, qbdot_e, qbddot_fb, qbddot_d, qfddot_fb, qf_e, qfdot_e, qfddot_d;
     double body_ini_pos, plate_ini_pos; 
-    double Kp_1 = 15;
-    double Kd_1 = 75;
-    double Kp_2 = 100;
-    double Kd_2 = 500;
+    double q_com, qdot_com, qddot_com, q_com_d, qdot_com_d, qddot_com_d, q_com_e, qdot_com_e, qddot_com_e, qddot_com_fb;
+    double u_fb, u_ff, u_combine;
+    double Kp_1 = 40000;
+    double Kd_1 = 2000;
+    double Kp_2 = 3000;
+    double Kd_2 = 7200;
+    double Kp_com = 3500.0;
+    double Kd_com = 5000.0;
+    bool track_f_and_b = true;
+    bool track_com = false;
+    bool track_com_u = false;
     for (int i = 0; i < M; i++) {
         time_array[i] = data_array[i][0];
 	std::cout<< "t =  " << time_array[i] << std::endl;
@@ -144,6 +154,8 @@ int main(int argc, char* argv[]) {
         qf[i] = data_array[i][3]; 
         qfdot[i] = data_array[i][4];
         qfddot[i] = data_array[i][6];
+        u_ff_list[i] = data_array[i][7];
+
     }
 
     if (argc != 2 || ParseJSON(argv[1], params) == false) {
@@ -403,8 +415,8 @@ int main(int argc, char* argv[]) {
                 max_z = gran_sys.get_max_z();
                 rigid_plate->SetBodyFixed(false);
                 rigid_plate->SetPos_dt(ChVector<>(0, 0, -20));
-                body_ini_pos = max_z + 4.4 + 25.0;
-                plate_ini_pos = max_z + 4.4;
+                body_ini_pos = max_z + 4.5 + 25.0;
+                plate_ini_pos = max_z + 4.5;
                 rigid_plate->SetPos(ChVector<>(0, 0, plate_ini_pos));
 
                 rigid_body->SetBodyFixed(false);
@@ -477,22 +489,90 @@ int main(int argc, char* argv[]) {
                 utheta = 0.0;
             }
             // the feedforward + feedback controller
-            else if (t > prepare_time && t < prepare_time + time_array[M-1])
+            else if (t > prepare_time && t < prepare_time + stance_time)
             {
-                qb_e = interpolate(time_array, qb, t - prepare_time, true) - (rigid_body->GetPos()[2]- body_ini_pos )/100.0;
-                qf_e = interpolate(time_array, qf, t - prepare_time, true) - (rigid_plate->GetPos()[2] - plate_ini_pos)/100.0;
-                qbdot_e = interpolate(time_array, qbdot, t - prepare_time, true) - rigid_body->GetPos_dt()[2]/100.0;
-                qfdot_e = interpolate(time_array, qfdot, t - prepare_time, true) - rigid_plate->GetPos_dt()[2]/100.0;
-                qbddot_fb = Kp_1 * qb_e + Kd_1 * qbdot_e;
-                qfddot_fb = Kp_2 * qf_e + Kd_2 * qfdot_e;
+                if (track_f_and_b == true && counter % 2 ==0)
+                {
+
+
+                    qb_e = interpolate(time_array, qb, t - prepare_time, true) - (rigid_body->GetPos()[2] - plate_ini_pos) / 100.0;
+                    qf_e = interpolate(time_array, qf, t - prepare_time, true) - (rigid_plate->GetPos()[2] - plate_ini_pos) / 100.0;
+                    qbdot_e = interpolate(time_array, qbdot, t - prepare_time, true) - rigid_body->GetPos_dt()[2] / 100.0;
+                    qfdot_e = interpolate(time_array, qfdot, t - prepare_time, true) - rigid_plate->GetPos_dt()[2] / 100.0;
+                    qbddot_fb = Kp_1 * qb_e + Kd_1 * qbdot_e;
+                    qfddot_fb = Kp_2 * qf_e + Kd_2 * qfdot_e;
+                    qbddot_d = interpolate(time_array, qbddot, t - prepare_time, true);
+                    qfddot_d = interpolate(time_array, qfddot, t - prepare_time, true);
+                    
+                    ux = 0.0;
+                 //   uy = 0.5 * (body_mass / 1000.0 * (9.81 + qbddot_fb + qbddot_d) * F_SI_TO_CGS) + 0.5 * (plate_force[2] - plate_mass / 1000.0 * (qfddot_fb + qfddot_d + 9.81) * F_SI_TO_CGS);
+
+                    uy = interpolate(time_array, u_ff_list, t - prepare_time, true) * F_SI_TO_CGS  + 0.5 * (body_mass / 1000.0 * qbddot_d - plate_mass / 1000.0 * qfddot_fb) * F_SI_TO_CGS;
+                    //                std::cout<< "uy ="<< uy<<std::endl;
+                    utheta = 0.0;
+                    //std::cout << "\n\n\n" << "ux  uy  utheta\n" << ux << '\n' << uy << '\n' << utheta << "\n\n\n" << std::endl;
+                    
+                    if (uy < -80 * F_SI_TO_CGS)
+                    {
+                        uy = -80.0 * F_SI_TO_CGS;
+                    }
+                    else if (uy > 80 * F_SI_TO_CGS)
+                    {
+                        uy = 80.0 * F_SI_TO_CGS;
+                    }
+                    u_fb_error << t << "," << (body_mass * qbddot_fb - plate_mass * qfddot_fb) * 0.5 * F_SI_TO_CGS / 1000.0 << "," << uy << "\n";
+                }
+                else if (track_com == true) 
+                {
+                    q_com_d = (interpolate(time_array, qb, t - prepare_time, true) * body_mass + interpolate(time_array, qf, t - prepare_time, true) * plate_mass) * 1.0 / (body_mass + plate_mass);
+                    qdot_com_d = (interpolate(time_array, qbdot, t - prepare_time, true) * body_mass + interpolate(time_array, qfdot, t - prepare_time, true) * plate_mass) * 1.0 / (body_mass + plate_mass);
+                    q_com = ((rigid_body->GetPos()[2] - plate_ini_pos) * body_mass + (rigid_plate->GetPos()[2] - plate_ini_pos) * plate_mass) / (100.0 * (body_mass + plate_mass));
+                    qdot_com = (rigid_body->GetPos_dt()[2] * body_mass + rigid_plate->GetPos_dt()[2] * plate_mass) * 1.0 / (100.0 * (body_mass + plate_mass));
+                    q_com_e = q_com_d - q_com;
+                    qdot_com_e = qdot_com_d - qdot_com;
+                    qddot_com_fb = Kp_com * q_com_e + Kd_com * qdot_com_e;
+                    qddot_com_d = (interpolate(time_array, qbddot, t - prepare_time, true) * body_mass + interpolate(time_array, qfddot, t - prepare_time, true) * plate_mass) * 1.0 / (body_mass + plate_mass);
+
+                    ux = 0.0;
+                    uy = (body_mass * 9.81 + (body_mass + plate_mass) * (qddot_com_fb + qddot_com_d) - plate_mass * interpolate(time_array, qfddot, t - prepare_time, true)) / 1000.0 * F_SI_TO_CGS;
+                    
+                       //             std::cout<< "uy ="<< uy<<std::endl;
+                    utheta = 0.0;
+                }
+                else if(track_com_u == true)
+                {
+                    q_com_d = (interpolate(time_array, qb, t - prepare_time, true) * body_mass - interpolate(time_array, qf, t - prepare_time, true) * plate_mass) * 1.0 / (body_mass + plate_mass);
+                    qdot_com_d = (interpolate(time_array, qbdot, t - prepare_time, true) * body_mass - interpolate(time_array, qfdot, t - prepare_time, true) * plate_mass) * 1.0 / (body_mass + plate_mass);
+                    q_com = ((rigid_body->GetPos()[2] - plate_ini_pos) * body_mass - (rigid_plate->GetPos()[2] - plate_ini_pos) * plate_mass) / (100.0 * (body_mass + plate_mass));
+                    qdot_com = (rigid_body->GetPos_dt()[2] * body_mass - rigid_plate->GetPos_dt()[2] * plate_mass) * 1.0 / (100.0 * (body_mass + plate_mass));
+                    q_com_e = q_com_d - q_com;
+                    qdot_com_e = qdot_com_d - qdot_com;
+                    u_fb = (Kp_com * q_com_e + Kd_com * qdot_com_e) * F_SI_TO_CGS;
+                    CoM_state << t << "," << q_com << "," << qdot_com << "\n";
+		            u_fb_error << t << "," << u_fb << "\n";
+                    u_ff = interpolate(time_array, u_ff_list, t - prepare_time, true) * F_SI_TO_CGS;
+                    
+                    ux = 0.0;
+                    uy = u_fb + u_ff;
+                    if (uy < -50 * F_SI_TO_CGS)
+                    {
+                        uy = -50.0 * F_SI_TO_CGS;
+                    }
+                    else if (uy > 50 * F_SI_TO_CGS)
+                    {
+                        uy = 50.0 * F_SI_TO_CGS;
+                    }
+                    utheta = 0.0;
+
+                }
+            }
+            else if (t > prepare_time + stance_time && t < prepare_time + time_array[M - 1]) {
                 qbddot_d = interpolate(time_array, qbddot, t - prepare_time, true);
                 qfddot_d = interpolate(time_array, qfddot, t - prepare_time, true);
-                
                 ux = 0.0;
-                uy = 0.5 * (body_mass / 1000.0 * (9.81 + qbddot_fb + qbddot_d) * F_SI_TO_CGS) + 0.5 * (plate_force[2] - plate_mass /1000.0 * (qfddot_fb + qfddot_d + 9.81) * F_SI_TO_CGS);
-//                std::cout<< "uy ="<< uy<<std::endl;
+              //  uy = body_mass / 1000.0 * (9.81 + qbddot_d) * F_SI_TO_CGS;
+                uy = interpolate(time_array, u_ff_list, t - prepare_time, true) * F_SI_TO_CGS;
                 utheta = 0.0;
-                //std::cout << "\n\n\n" << "ux  uy  utheta\n" << ux << '\n' << uy << '\n' << utheta << "\n\n\n" << std::endl;
             }
             else {
                 ux = 0.0;
@@ -529,7 +609,8 @@ int main(int argc, char* argv[]) {
                 std::cout << t << ',' << plate_vel.z() << ',' << rigid_plate->GetPos()[2] << ',' << plate_force[0] * F_CGS_TO_SI << ','
                     << plate_force[1] * F_CGS_TO_SI << ','
                     << plate_force[2] * F_CGS_TO_SI << ',' << gran_sys.get_max_z() << ',' << gran_sys.getNumSpheres() << std::endl;
-            }
+            //    std::cout <<"total mass = " <<body_mass + plate_mass<<std::endl;          
+ }
             if (counter % 4 == 0 && t > prepare_time && t < prepare_time + time_array[M - 1]){
                 out_as << t << "," << plate_force[0] * F_CGS_TO_SI << "," << plate_force[1] * F_CGS_TO_SI << ","
                     << plate_force[2] * F_CGS_TO_SI << "," << plate_force[3] << "," << plate_force[4] << "," << plate_force[5]
@@ -583,6 +664,8 @@ int main(int argc, char* argv[]) {
     out_body_vel.close();
     out_body_pos.close();
     body_pos_short.close();
+    u_fb_error.close();
+    CoM_state.close();
     return 0;
 }
 
