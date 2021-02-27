@@ -1,6 +1,8 @@
 
 
 
+
+
 // ============================================================================= 
 // PROJECT CHRONO - http://projectchrono.org 
 // 
@@ -137,14 +139,14 @@ int main(int argc, char* argv[]) {
     double q_com, qdot_com, qddot_com, q_com_d, qdot_com_d, qddot_com_d, q_com_e, qdot_com_e, qddot_com_e, qddot_com_fb;
     double u_fb, u_ff, u_combine;
     double Kp_1 = 40000;
-    double Kd_1 = 2000;
-    double Kp_2 = 3000;
+    double Kd_1 = 1800;
+    double Kp_2 = 140000;
     double Kd_2 = 7200;
-    double Kp_com = 3500.0;
-    double Kd_com = 5000.0;
-    bool track_f_and_b = true;
+    double Kp_com =0.0;
+    double Kd_com = 0.0;
+    bool track_f_and_b = false;
     bool track_com = false;
-    bool track_com_u = false;
+    bool track_com_u = true;
     for (int i = 0; i < M; i++) {
         time_array[i] = data_array[i][0];
 	std::cout<< "t =  " << time_array[i] << std::endl;
@@ -249,7 +251,7 @@ int main(int argc, char* argv[]) {
     gran_sys.set_static_friction_coeff_SPH2WALL(params.static_friction_coeffS2W);
     gran_sys.set_static_friction_coeff_SPH2MESH(params.static_friction_coeffS2M);
 
-    std::string mesh_filename(GetChronoDataFile("granular/oneD_feedback/foot2.obj"));
+    std::string mesh_filename(GetChronoDataFile("granular/oneD_feedback/foot3.obj"));
 
     std::string mesh_filename_lid = GetChronoDataFile("granular/oneD_feedback/foot.obj");
 
@@ -271,7 +273,7 @@ int main(int argc, char* argv[]) {
     float ball_radius = 20.f;
     float length = 5.0;
     float width = 5.0;
-    float thickness = 10.0;
+    float thickness = 16.0;
     float lid_length = 100.0;
     float lid_width = 100.0;
     float lid_thickness = 10.0;
@@ -283,7 +285,7 @@ int main(int argc, char* argv[]) {
     mesh_rotscales.push_back(ChMatrix33<float>(1.0));
 
 
-    float plate_density = 1;//params.sphere_density / 100.f;
+    float plate_density = 0.625;//params.sphere_density / 100.f;
     float plate_mass = (float)length * width * thickness * plate_density;
     float lid_density = 0.01;
     float lid_mass = (float)lid_length * lid_width * lid_thickness * lid_density;
@@ -400,6 +402,7 @@ int main(int argc, char* argv[]) {
         rigid_plate->SetBodyFixed(true);
         rigid_lid->SetPos(ChVector<>(0, 0, 200));
         rigid_lid->SetBodyFixed(true);
+       // std::cout<<body_mass << std::endl;
         for (double t = 0; t < (double)params.time_end; t += iteration_step, curr_step++) {
 
 
@@ -414,13 +417,13 @@ int main(int argc, char* argv[]) {
                 gran_sys.enableMeshCollision();
                 max_z = gran_sys.get_max_z();
                 rigid_plate->SetBodyFixed(false);
-                rigid_plate->SetPos_dt(ChVector<>(0, 0, -20));
-                body_ini_pos = max_z + 4.5 + 25.0;
-                plate_ini_pos = max_z + 4.5;
+                rigid_plate->SetPos_dt(ChVector<>(0, 0, -200.0));
+                body_ini_pos = max_z + 7.8 + 25.0;
+                plate_ini_pos = max_z + 7.8;
                 rigid_plate->SetPos(ChVector<>(0, 0, plate_ini_pos));
 
                 rigid_body->SetBodyFixed(false);
-                rigid_body->SetPos_dt(ChVector<>(0, 0, -20));
+                rigid_body->SetPos_dt(ChVector<>(0, 0, -200.0));
                 rigid_body->SetPos(ChVector<>(0, 0, body_ini_pos));
                 plate_impact_state = true;
             }
@@ -507,18 +510,18 @@ int main(int argc, char* argv[]) {
                     ux = 0.0;
                  //   uy = 0.5 * (body_mass / 1000.0 * (9.81 + qbddot_fb + qbddot_d) * F_SI_TO_CGS) + 0.5 * (plate_force[2] - plate_mass / 1000.0 * (qfddot_fb + qfddot_d + 9.81) * F_SI_TO_CGS);
 
-                    uy = interpolate(time_array, u_ff_list, t - prepare_time, true) * F_SI_TO_CGS  + 0.5 * (body_mass / 1000.0 * qbddot_d - plate_mass / 1000.0 * qfddot_fb) * F_SI_TO_CGS;
+                    uy = interpolate(time_array, u_ff_list, t - prepare_time, true) * F_SI_TO_CGS  + 0.5 * (body_mass / 1000.0 * qbddot_fb - plate_mass / 1000.0 * qfddot_fb) * F_SI_TO_CGS;
                     //                std::cout<< "uy ="<< uy<<std::endl;
                     utheta = 0.0;
                     //std::cout << "\n\n\n" << "ux  uy  utheta\n" << ux << '\n' << uy << '\n' << utheta << "\n\n\n" << std::endl;
                     
-                    if (uy < -80 * F_SI_TO_CGS)
+                    if (uy < -90 * F_SI_TO_CGS)
                     {
-                        uy = -80.0 * F_SI_TO_CGS;
+                        uy = -90.0 * F_SI_TO_CGS;
                     }
-                    else if (uy > 80 * F_SI_TO_CGS)
+                    else if (uy > 90 * F_SI_TO_CGS)
                     {
-                        uy = 80.0 * F_SI_TO_CGS;
+                        uy = 90.0 * F_SI_TO_CGS;
                     }
                     u_fb_error << t << "," << (body_mass * qbddot_fb - plate_mass * qfddot_fb) * 0.5 * F_SI_TO_CGS / 1000.0 << "," << uy << "\n";
                 }
@@ -541,28 +544,29 @@ int main(int argc, char* argv[]) {
                 }
                 else if(track_com_u == true)
                 {
-                    q_com_d = (interpolate(time_array, qb, t - prepare_time, true) * body_mass - interpolate(time_array, qf, t - prepare_time, true) * plate_mass) * 1.0 / (body_mass + plate_mass);
-                    qdot_com_d = (interpolate(time_array, qbdot, t - prepare_time, true) * body_mass - interpolate(time_array, qfdot, t - prepare_time, true) * plate_mass) * 1.0 / (body_mass + plate_mass);
-                    q_com = ((rigid_body->GetPos()[2] - plate_ini_pos) * body_mass - (rigid_plate->GetPos()[2] - plate_ini_pos) * plate_mass) / (100.0 * (body_mass + plate_mass));
-                    qdot_com = (rigid_body->GetPos_dt()[2] * body_mass - rigid_plate->GetPos_dt()[2] * plate_mass) * 1.0 / (100.0 * (body_mass + plate_mass));
+                    q_com_d = (interpolate(time_array, qb, t - prepare_time, true) * body_mass + interpolate(time_array, qf, t - prepare_time, true) * plate_mass) * 1.0 / (body_mass + plate_mass);
+                    qdot_com_d = (interpolate(time_array, qbdot, t - prepare_time, true) * body_mass + interpolate(time_array, qfdot, t - prepare_time, true) * plate_mass) * 1.0 / (body_mass + plate_mass);
+                    q_com = ((rigid_body->GetPos()[2] - plate_ini_pos) * body_mass + (rigid_plate->GetPos()[2] - plate_ini_pos) * plate_mass) / (100.0 * (body_mass + plate_mass));
+                    qdot_com = (rigid_body->GetPos_dt()[2] * body_mass + rigid_plate->GetPos_dt()[2] * plate_mass) * 1.0 / (100.0 * (body_mass + plate_mass));
                     q_com_e = q_com_d - q_com;
                     qdot_com_e = qdot_com_d - qdot_com;
                     u_fb = (Kp_com * q_com_e + Kd_com * qdot_com_e) * F_SI_TO_CGS;
                     CoM_state << t << "," << q_com << "," << qdot_com << "\n";
-		            u_fb_error << t << "," << u_fb << "\n";
+		            u_fb_error << t << "," << u_fb << ",";
                     u_ff = interpolate(time_array, u_ff_list, t - prepare_time, true) * F_SI_TO_CGS;
                     
                     ux = 0.0;
                     uy = u_fb + u_ff;
-                    if (uy < -50 * F_SI_TO_CGS)
+                    if (uy < -70 * F_SI_TO_CGS)
                     {
-                        uy = -50.0 * F_SI_TO_CGS;
+                        uy = -70.0 * F_SI_TO_CGS;
                     }
-                    else if (uy > 50 * F_SI_TO_CGS)
+                    else if (uy > 70 * F_SI_TO_CGS)
                     {
-                        uy = 50.0 * F_SI_TO_CGS;
+                        uy = 70.0 * F_SI_TO_CGS;
                     }
                     utheta = 0.0;
+                    u_fb_error<<uy<<"\n";
 
                 }
             }
@@ -611,7 +615,7 @@ int main(int argc, char* argv[]) {
                     << plate_force[2] * F_CGS_TO_SI << ',' << gran_sys.get_max_z() << ',' << gran_sys.getNumSpheres() << std::endl;
             //    std::cout <<"total mass = " <<body_mass + plate_mass<<std::endl;          
  }
-            if (counter % 4 == 0 && t > prepare_time && t < prepare_time + time_array[M - 1]){
+            if (counter % 4 == 0 && t > prepare_time && t < prepare_time + time_array[M - 1]+0.2){
                 out_as << t << "," << plate_force[0] * F_CGS_TO_SI << "," << plate_force[1] * F_CGS_TO_SI << ","
                     << plate_force[2] * F_CGS_TO_SI << "," << plate_force[3] << "," << plate_force[4] << "," << plate_force[5]
                     << '\n';
