@@ -82,14 +82,14 @@ constexpr float F_CGS_TO_SI = 1e-5;
 
 const double F_SI_TO_CGS = 1e5;
 const double Torque_SI_TO_CGS = 1e7;
-const int M = 2161;
-const int N = 8;
+const int M = 2143;
+const int N = 9;
 const double stance_time = 0.3;
 void readdata(std::string address, double array[M][N]);
 
 double interpolate(double* xData, double* yData, double x, bool extrapolate)
 {
-    int size = 2161;
+    int size = 2143;
 
     int i = 0;                                                                  // find left end of interval for interpolation
     if (x >= xData[size - 2])                                                 // special case: beyond right end
@@ -126,6 +126,8 @@ int main(int argc, char* argv[]) {
     std::ofstream body_pos_short("body_pos_short.csv");
     std::ofstream u_fb_error("u_fb_error.csv");
     std::ofstream CoM_state("CoM_state.csv");
+    std::ofstream Feedback_output("Feedback_output.csv");
+
     sim_param_holder params;
 
     // read the body and foot states data from a txt file 
@@ -133,7 +135,7 @@ int main(int argc, char* argv[]) {
     double data_array[M][N];
     readdata(data_address, data_array);
     // create arrays to store ux uy u_theta
-    double time_array[M], qf[M], qb[M], qfdot[M], qbdot[M], qfddot[M], qbddot[M], u_ff_list[M];
+    double time_array[M], qf[M], qb[M], qfdot[M], qbdot[M], qfddot[M], qbddot[M], u_ff_list[M],u_flight_list[M];
     double qb_e, qbdot_e, qbddot_fb, qbddot_d, qfddot_fb, qf_e, qfdot_e, qfddot_d;
     double body_ini_pos, plate_ini_pos; 
     double q_com, qdot_com, qddot_com, q_com_d, qdot_com_d, qddot_com_d, q_com_e, qdot_com_e, qddot_com_e, qddot_com_fb;
@@ -142,8 +144,8 @@ int main(int argc, char* argv[]) {
     double Kd_1 = 1800;
     double Kp_2 = 140000;
     double Kd_2 = 7200;
-    double Kp_com =0.0;
-    double Kd_com = 0.0;
+    double Kp_com = 200.0;
+    double Kd_com = 200.0;
     bool track_f_and_b = false;
     bool track_com = false;
     bool track_com_u = true;
@@ -157,6 +159,7 @@ int main(int argc, char* argv[]) {
         qfdot[i] = data_array[i][4];
         qfddot[i] = data_array[i][6];
         u_ff_list[i] = data_array[i][7];
+        u_flight_list[i]=data_array[i][8];
 
     }
 
@@ -251,7 +254,7 @@ int main(int argc, char* argv[]) {
     gran_sys.set_static_friction_coeff_SPH2WALL(params.static_friction_coeffS2W);
     gran_sys.set_static_friction_coeff_SPH2MESH(params.static_friction_coeffS2M);
 
-    std::string mesh_filename(GetChronoDataFile("granular/oneD_feedback/foot3.obj"));
+    std::string mesh_filename(GetChronoDataFile("granular/oneD_feedback/foot4.obj"));
 
     std::string mesh_filename_lid = GetChronoDataFile("granular/oneD_feedback/foot.obj");
 
@@ -273,7 +276,7 @@ int main(int argc, char* argv[]) {
     float ball_radius = 20.f;
     float length = 5.0;
     float width = 5.0;
-    float thickness = 16.0;
+    float thickness = 20.0;
     float lid_length = 100.0;
     float lid_width = 100.0;
     float lid_thickness = 10.0;
@@ -285,7 +288,7 @@ int main(int argc, char* argv[]) {
     mesh_rotscales.push_back(ChMatrix33<float>(1.0));
 
 
-    float plate_density = 0.625;//params.sphere_density / 100.f;
+    float plate_density = 0.5;//params.sphere_density / 100.f;
     float plate_mass = (float)length * width * thickness * plate_density;
     float lid_density = 0.01;
     float lid_mass = (float)lid_length * lid_width * lid_thickness * lid_density;
@@ -417,13 +420,13 @@ int main(int argc, char* argv[]) {
                 gran_sys.enableMeshCollision();
                 max_z = gran_sys.get_max_z();
                 rigid_plate->SetBodyFixed(false);
-                rigid_plate->SetPos_dt(ChVector<>(0, 0, -200.0));
-                body_ini_pos = max_z + 7.8 + 25.0;
-                plate_ini_pos = max_z + 7.8;
+                rigid_plate->SetPos_dt(ChVector<>(0, 0, -200));
+                body_ini_pos = max_z + 9.5 + 25.0;
+                plate_ini_pos = max_z + 9.5;
                 rigid_plate->SetPos(ChVector<>(0, 0, plate_ini_pos));
 
                 rigid_body->SetBodyFixed(false);
-                rigid_body->SetPos_dt(ChVector<>(0, 0, -200.0));
+                rigid_body->SetPos_dt(ChVector<>(0, 0, -200));
                 rigid_body->SetPos(ChVector<>(0, 0, body_ini_pos));
                 plate_impact_state = true;
             }
@@ -557,25 +560,26 @@ int main(int argc, char* argv[]) {
                     
                     ux = 0.0;
                     uy = u_fb + u_ff;
-                    if (uy < -70 * F_SI_TO_CGS)
+                 /*   if (uy < -100 * F_SI_TO_CGS)
                     {
-                        uy = -70.0 * F_SI_TO_CGS;
+                        uy = -100.0 * F_SI_TO_CGS;
                     }
-                    else if (uy > 70 * F_SI_TO_CGS)
+                    else if (uy > 100 * F_SI_TO_CGS)
                     {
-                        uy = 70.0 * F_SI_TO_CGS;
-                    }
+                        uy = 100.0 * F_SI_TO_CGS;
+                    }*/
                     utheta = 0.0;
                     u_fb_error<<uy<<"\n";
+                    Feedback_output << t << "," << Kp_com * q_com_e << "," << Kd_com * qdot_com_e << "\n";
 
                 }
             }
-            else if (t > prepare_time + stance_time && t < prepare_time + time_array[M - 1]) {
+            else if (t > prepare_time + stance_time && t < prepare_time + time_array[M - 1] ) {
                 qbddot_d = interpolate(time_array, qbddot, t - prepare_time, true);
                 qfddot_d = interpolate(time_array, qfddot, t - prepare_time, true);
                 ux = 0.0;
               //  uy = body_mass / 1000.0 * (9.81 + qbddot_d) * F_SI_TO_CGS;
-                uy = interpolate(time_array, u_ff_list, t - prepare_time, true) * F_SI_TO_CGS;
+                uy = interpolate(time_array, u_flight_list, t - prepare_time, true) * F_SI_TO_CGS;
                 utheta = 0.0;
             }
             else {
@@ -615,7 +619,7 @@ int main(int argc, char* argv[]) {
                     << plate_force[2] * F_CGS_TO_SI << ',' << gran_sys.get_max_z() << ',' << gran_sys.getNumSpheres() << std::endl;
             //    std::cout <<"total mass = " <<body_mass + plate_mass<<std::endl;          
  }
-            if (counter % 4 == 0 && t > prepare_time && t < prepare_time + time_array[M - 1]+0.2){
+            if (counter % 4 == 0 && t > prepare_time && t < prepare_time + time_array[M - 1]){
                 out_as << t << "," << plate_force[0] * F_CGS_TO_SI << "," << plate_force[1] * F_CGS_TO_SI << ","
                     << plate_force[2] * F_CGS_TO_SI << "," << plate_force[3] << "," << plate_force[4] << "," << plate_force[5]
                     << '\n';
@@ -670,6 +674,7 @@ int main(int argc, char* argv[]) {
     body_pos_short.close();
     u_fb_error.close();
     CoM_state.close();
+    Feedback_output.close();
     return 0;
 }
 
