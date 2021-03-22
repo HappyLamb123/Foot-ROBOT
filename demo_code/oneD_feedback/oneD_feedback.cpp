@@ -114,18 +114,30 @@ double interpolate(double* xData, double* yData, double x, bool extrapolate)
 int main(int argc, char* argv[]) {
 
     std::ofstream out_as("output_plate_forces.csv");
+  /* 
     std::ofstream out_pos("output_plate_positions.csv");
     std::ofstream out_vel("output_plate_velocities.csv");
+    std::ofstream CoM_state("CoM_state.csv");
+    std::ofstream out_body_pos("out_body_positions.csv");
+    std::ofstream out_body_vel("out_body_velocities.csv");
+   */
+  
+    std::ofstream out_pos("open_loop_plate_positions.csv");
+    std::ofstream out_vel("open_loop_plate_velocities.csv");
+    std::ofstream CoM_state("open_loop_CoM_state.csv");
+    std::ofstream out_body_pos("open_loop_body_positions.csv");
+    std::ofstream out_body_vel("open_loop_body_velocities.csv");
+  
+
     std::ofstream plate_pos_short("plate_pos_short.csv");
+    
     std::ofstream lid_force("lid_forces.csv");
     std::ofstream lid_position("lid_pos.csv");
     std::ofstream lid_velocity("lid_vel.csv");
     std::ofstream lid_pos_short("lid_pos_short.csv");
-    std::ofstream out_body_pos("out_body_positions.csv");
-    std::ofstream out_body_vel("out_body_velocities.csv");
     std::ofstream body_pos_short("body_pos_short.csv");
     std::ofstream u_fb_error("u_fb_error.csv");
-    std::ofstream CoM_state("CoM_state.csv");
+    
     std::ofstream Feedback_output("Feedback_output.csv");
 
     sim_param_holder params;
@@ -144,8 +156,8 @@ int main(int argc, char* argv[]) {
     double Kd_1 = 1800;
     double Kp_2 = 140000;
     double Kd_2 = 7200;
-    double Kp_com = 200.0;
-    double Kd_com = 200.0;
+    double Kp_com = 0.0;
+    double Kd_com = 0.0;
     bool track_f_and_b = false;
     bool track_com = false;
     bool track_com_u = true;
@@ -254,7 +266,7 @@ int main(int argc, char* argv[]) {
     gran_sys.set_static_friction_coeff_SPH2WALL(params.static_friction_coeffS2W);
     gran_sys.set_static_friction_coeff_SPH2MESH(params.static_friction_coeffS2M);
 
-    std::string mesh_filename(GetChronoDataFile("granular/oneD_feedback/foot4.obj"));
+    std::string mesh_filename(GetChronoDataFile("granular/oneD_feedback/foot6.obj"));
 
     std::string mesh_filename_lid = GetChronoDataFile("granular/oneD_feedback/foot.obj");
 
@@ -274,8 +286,8 @@ int main(int argc, char* argv[]) {
 
 
     float ball_radius = 20.f;
-    float length = 5.0;
-    float width = 5.0;
+    float length = 3.0;
+    float width = 3.0;
     float thickness = 20.0;
     float lid_length = 100.0;
     float lid_width = 100.0;
@@ -292,7 +304,7 @@ int main(int argc, char* argv[]) {
     float plate_mass = (float)length * width * thickness * plate_density;
     float lid_density = 0.01;
     float lid_mass = (float)lid_length * lid_width * lid_thickness * lid_density;
-    float body_density = 10.0;
+    float body_density = 3.6;
     float body_mass = (float)body_length * body_width * body_thickness * body_density;
 
 
@@ -420,13 +432,13 @@ int main(int argc, char* argv[]) {
                 gran_sys.enableMeshCollision();
                 max_z = gran_sys.get_max_z();
                 rigid_plate->SetBodyFixed(false);
-                rigid_plate->SetPos_dt(ChVector<>(0, 0, -200));
+                rigid_plate->SetPos_dt(ChVector<>(0, 0, 0));
                 body_ini_pos = max_z + 9.5 + 25.0;
                 plate_ini_pos = max_z + 9.5;
                 rigid_plate->SetPos(ChVector<>(0, 0, plate_ini_pos));
 
                 rigid_body->SetBodyFixed(false);
-                rigid_body->SetPos_dt(ChVector<>(0, 0, -200));
+                rigid_body->SetPos_dt(ChVector<>(0, 0, 0));
                 rigid_body->SetPos(ChVector<>(0, 0, body_ini_pos));
                 plate_impact_state = true;
             }
@@ -568,6 +580,10 @@ int main(int argc, char* argv[]) {
                     {
                         uy = 100.0 * F_SI_TO_CGS;
                     }*/
+		    if (uy < 0)
+{
+uy=0;
+}
                     utheta = 0.0;
                     u_fb_error<<uy<<"\n";
                     Feedback_output << t << "," << Kp_com * q_com_e << "," << Kd_com * qdot_com_e << "\n";
